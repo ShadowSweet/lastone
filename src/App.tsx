@@ -64,6 +64,8 @@ export default function App() {
   const startTimeRef = useRef(0);
   const roadOffsetRef = useRef(0);
   const ultimateEffectRef = useRef<{ active: boolean; radius: number; opacity: number } | null>(null);
+  const touchActiveRef = useRef(false);
+  const lastTouchRef = useRef<Point | null>(null);
 
   // --- Initialization ---
   const initGame = useCallback(() => {
@@ -101,11 +103,54 @@ export default function App() {
       keysRef.current[e.key.toLowerCase()] = false;
     };
 
+    const handleTouchStart = (e: TouchEvent) => {
+      if (gameState !== 'PLAYING') return;
+      // Prevent scrolling
+      if (e.target instanceof HTMLCanvasElement) {
+        e.preventDefault();
+      }
+      touchActiveRef.current = true;
+      const touch = e.touches[0];
+      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!touchActiveRef.current || gameState !== 'PLAYING') return;
+      if (e.target instanceof HTMLCanvasElement) {
+        e.preventDefault();
+      }
+      const touch = e.touches[0];
+      const currentTouch = { x: touch.clientX, y: touch.clientY };
+      
+      if (lastTouchRef.current) {
+        const dx = currentTouch.x - lastTouchRef.current.x;
+        const dy = currentTouch.y - lastTouchRef.current.y;
+        
+        const p = playerRef.current;
+        p.x += dx;
+        p.y += dy;
+      }
+      
+      lastTouchRef.current = currentTouch;
+    };
+
+    const handleTouchEnd = () => {
+      touchActiveRef.current = false;
+      lastTouchRef.current = null;
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('touchstart', handleTouchStart, { passive: false });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+    
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [energy, gameState]);
 
@@ -437,40 +482,59 @@ export default function App() {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white">
-      <canvas ref={canvasRef} className="block w-full h-full" />
+    <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white touch-none select-none">
+      <canvas ref={canvasRef} className="block w-full h-full touch-none" />
 
       {/* HUD */}
       {gameState === 'PLAYING' && (
-        <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-start pointer-events-none">
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-widest opacity-50 font-mono">Puntaje</div>
-            <div className="text-4xl font-black italic tracking-tighter">{score.toLocaleString()}</div>
-          </div>
-          
-          <div className="flex flex-col items-end space-y-4">
-            <div className="text-right">
-              <div className="text-xs uppercase tracking-widest opacity-50 font-mono">P.E.M. (R)</div>
-              <div className="w-48 h-3 bg-white/10 rounded-full overflow-hidden border border-white/5 mt-1">
-                <motion.div 
-                  className="h-full bg-pink-400 shadow-[0_0_15px_rgba(244,114,182,0.8)]"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${energy}%` }}
-                  transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
-                />
+        <>
+          <div className="absolute top-0 left-0 w-full p-4 md:p-6 flex justify-between items-start pointer-events-none">
+            <div className="space-y-1">
+              <div className="text-[10px] md:text-xs uppercase tracking-widest opacity-50 font-mono">Puntaje</div>
+              <div className="text-2xl md:text-4xl font-black italic tracking-tighter">{score.toLocaleString()}</div>
+            </div>
+            
+            <div className="flex flex-col items-end space-y-4">
+              <div className="text-right">
+                <div className="text-[10px] md:text-xs uppercase tracking-widest opacity-50 font-mono">P.E.M. (R)</div>
+                <div className="w-32 md:w-48 h-2 md:h-3 bg-white/10 rounded-full overflow-hidden border border-white/5 mt-1">
+                  <motion.div 
+                    className="h-full bg-pink-400 shadow-[0_0_15px_rgba(244,114,182,0.8)]"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${energy}%` }}
+                    transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+                  />
+                </div>
+                {energy >= MAX_ENERGY && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-[8px] md:text-[10px] text-pink-400 font-bold uppercase mt-1 tracking-widest"
+                  >
+                    Listo para el Pulso
+                  </motion.div>
+                )}
               </div>
-              {energy >= MAX_ENERGY && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="text-[10px] text-pink-400 font-bold uppercase mt-1 tracking-widest"
-                >
-                  Listo para el Pulso
-                </motion.div>
-              )}
             </div>
           </div>
-        </div>
+
+          {/* Mobile Ultimate Button */}
+          <div className="absolute bottom-8 right-8 z-40 md:hidden">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (energy >= MAX_ENERGY) activateUltimate();
+              }}
+              className={`w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all active:scale-90 ${
+                energy >= MAX_ENERGY 
+                ? 'bg-pink-500 border-white shadow-[0_0_20px_rgba(236,72,153,0.8)]' 
+                : 'bg-white/10 border-white/20 opacity-50'
+              }`}
+            >
+              <Zap size={32} className={energy >= MAX_ENERGY ? 'text-white fill-white' : 'text-white/40'} />
+            </button>
+          </div>
+        </>
       )}
 
       {/* Screens */}
@@ -488,26 +552,29 @@ export default function App() {
               className="text-center space-y-8"
             >
               <div className="space-y-2">
-                <h1 className="text-8xl font-black italic tracking-tighter uppercase leading-none text-[#ff758c] drop-shadow-[0_0_20px_rgba(255,117,140,0.6)]">
+                <h1 className="text-5xl md:text-8xl font-black italic tracking-tighter uppercase leading-none text-[#ff758c] drop-shadow-[0_0_20px_rgba(255,117,140,0.6)]">
                   Last One
                 </h1>
-                <p className="text-white/40 font-mono text-sm tracking-widest uppercase">El camino neón nunca termina</p>
+                <p className="text-white/40 font-mono text-[10px] md:text-sm tracking-widest uppercase">El camino neón nunca termina</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 max-w-md mx-auto text-left">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-md mx-auto text-left">
                 <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
                   <div className="text-[10px] uppercase opacity-40 mb-2 font-bold">Movimiento</div>
-                  <div className="flex gap-2">
-                    {['W', 'A', 'S', 'D'].map(k => (
-                      <span key={k} className="w-8 h-8 flex items-center justify-center bg-white/10 rounded border border-white/20 text-xs font-bold">{k}</span>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    <div className="hidden md:flex gap-2">
+                      {['W', 'A', 'S', 'D'].map(k => (
+                        <span key={k} className="w-8 h-8 flex items-center justify-center bg-white/10 rounded border border-white/20 text-xs font-bold">{k}</span>
+                      ))}
+                    </div>
+                    <span className="text-[10px] opacity-60 md:hidden">Desliza para mover</span>
                   </div>
                 </div>
                 <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
                   <div className="text-[10px] uppercase opacity-40 mb-2 font-bold">P.E.M.</div>
                   <div className="flex items-center gap-2">
                     <span className="w-8 h-8 flex items-center justify-center bg-pink-400/20 text-pink-400 rounded border border-pink-400/40 text-xs font-bold">R</span>
-                    <span className="text-[10px] opacity-60">Desintegrar enemigos</span>
+                    <span className="text-[10px] opacity-60">Botón o tecla R</span>
                   </div>
                 </div>
               </div>
@@ -535,32 +602,32 @@ export default function App() {
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="text-center space-y-12 max-w-lg w-full"
+              className="text-center space-y-8 md:space-y-12 max-w-lg w-full"
             >
               <div className="space-y-4">
-                <div className="inline-flex p-4 bg-pink-500/20 rounded-full text-pink-500 mb-4">
-                  <Skull size={48} />
+                <div className="inline-flex p-3 md:p-4 bg-pink-500/20 rounded-full text-pink-500 mb-2 md:mb-4">
+                  <Skull size={32} className="md:w-12 md:h-12" />
                 </div>
-                <h2 className="text-7xl font-black italic tracking-tighter uppercase leading-none">Destruido</h2>
-                <p className="text-white/60">Sobreviviste por {Math.floor(score / 10)} segundos en el camino neón.</p>
+                <h2 className="text-5xl md:text-7xl font-black italic tracking-tighter uppercase leading-none">Destruido</h2>
+                <p className="text-white/60 text-sm md:text-base">Sobreviviste por {Math.floor(score / 10)} segundos en el camino neón.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
-                <div className="bg-white/5 p-6 rounded-3xl border border-white/10 text-center">
-                  <div className="text-[10px] uppercase opacity-40 mb-1 font-bold tracking-widest">Puntaje Final</div>
-                  <div className="text-3xl font-black italic">{score.toLocaleString()}</div>
+              <div className="grid grid-cols-2 gap-4 md:gap-6">
+                <div className="bg-white/5 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-white/10 text-center">
+                  <div className="text-[8px] md:text-[10px] uppercase opacity-40 mb-1 font-bold tracking-widest">Puntaje Final</div>
+                  <div className="text-xl md:text-3xl font-black italic">{score.toLocaleString()}</div>
                 </div>
-                <div className="bg-white/5 p-6 rounded-3xl border border-white/10 text-center">
-                  <div className="text-[10px] uppercase opacity-40 mb-1 font-bold tracking-widest">Mejor Récord</div>
-                  <div className="text-3xl font-black italic text-pink-400">{highScore.toLocaleString()}</div>
+                <div className="bg-white/5 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-white/10 text-center">
+                  <div className="text-[8px] md:text-[10px] uppercase opacity-40 mb-1 font-bold tracking-widest">Mejor Récord</div>
+                  <div className="text-xl md:text-3xl font-black italic text-pink-400">{highScore.toLocaleString()}</div>
                 </div>
               </div>
 
               <button 
                 onClick={startGame}
-                className="w-full py-5 bg-white text-black font-black uppercase tracking-widest rounded-3xl flex items-center justify-center gap-3 transition-all hover:bg-pink-400 hover:shadow-[0_0_30px_rgba(244,114,182,0.5)] active:scale-95"
+                className="w-full py-4 md:py-5 bg-white text-black font-black uppercase tracking-widest rounded-2xl md:rounded-3xl flex items-center justify-center gap-3 transition-all hover:bg-pink-400 hover:shadow-[0_0_30px_rgba(244,114,182,0.5)] active:scale-95"
               >
-                <RotateCcw size={24} />
+                <RotateCcw size={20} className="md:w-6 md:h-6" />
                 Reintentar
               </button>
             </motion.div>
